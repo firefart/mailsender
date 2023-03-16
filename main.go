@@ -87,6 +87,13 @@ func (o sendOptions) validate() error {
 	return nil
 }
 
+type candidate struct {
+	id        int
+	name      string
+	givenName string
+	email     string
+}
+
 type templateData struct {
 	Name      string
 	GivenName string
@@ -290,6 +297,8 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 	}
 	defer rows.Close()
 
+	// we need to store the emails in memory as sqlite does not allow for updating the entries while a select query is running :/
+	var candidates []candidate
 	for rows.Next() {
 		var id int
 		var name, givenname, email string
@@ -297,10 +306,23 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 			return fmt.Errorf("error on scanning rows: %w", err)
 		}
 
+		candidates = append(candidates, candidate{
+			id:        id,
+			name:      name,
+			givenName: givenname,
+			email:     email,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("sql error: %w", err)
+	}
+	rows.Close()
+
+	for _, candidate := range candidates {
 		data := templateData{
-			Name:      name,
-			GivenName: givenname,
-			Email:     email,
+			Name:      candidate.name,
+			GivenName: candidate.givenName,
+			Email:     candidate.email,
 		}
 		var tplHTML, tplTXT bytes.Buffer
 		if err := templateHTML.Execute(&tplHTML, data); err != nil {
@@ -310,19 +332,18 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 			return fmt.Errorf("could not execute TXT template: %w", err)
 		}
 
-		if err := mail.Send(opts.fromFriendlyName, opts.fromEmail, email, opts.subject, tplHTML.String(), tplTXT.String()); err != nil {
-			return fmt.Errorf("could not send email to %s: %w", email, err)
+		if err := mail.Send(opts.fromFriendlyName, opts.fromEmail, candidate.email, opts.subject, tplHTML.String(), tplTXT.String()); err != nil {
+			return fmt.Errorf("could not send email to %s: %w", candidate.email, err)
 		}
 
-		if _, err := db.ExecContext(ctx, "update emails set sent = datetime('now') where id = ?", id); err != nil {
-			return fmt.Errorf("could not set sent date in database for email %s: %w", email, err)
+		log.Debugf("send email to %s", candidate.email)
+
+		if _, err := db.ExecContext(ctx, "update emails set sent = datetime('now') where id = ?", candidate.id); err != nil {
+			return fmt.Errorf("could not set sent date in database for email %s: %w", candidate.email, err)
 		}
 	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("sql error: %w", err)
-	}
 
-	log.Infof("Sent %d emails. There might be still emails in the database to send emails to", opts.numberOfEmails)
+	log.Infof("Sent %d emails. There might be still emails in the database to send emails to", len(candidates))
 
 	return nil
 }
