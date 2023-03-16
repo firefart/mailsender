@@ -1,0 +1,9 @@
+*.db
+*.csv
+*.tmpl
+*.sh
+.git
+.github
+*.md
+mailsender
+Makefile

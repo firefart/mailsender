@@ -1,0 +1,5 @@
+mailsender
+*.db
+*.csv
+*.tmpl
+*.sh
