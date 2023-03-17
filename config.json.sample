@@ -1,0 +1,19 @@
+{
+  "mail": {
+    "server": "localhost",
+    "port": 25,
+    "from": {
+      "name": "mailsender",
+      "mail": "a@a.com"
+    },
+    "skiptls": true,
+    "user": "",
+    "password": ""
+  },
+  "templates": {
+    "html": "/path/to/html.tmpl",
+    "txt": "/path/to/txt.tmpl"
+  },
+  "subject": "test",
+  "timeout": "10s"
+}

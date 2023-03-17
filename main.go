@@ -11,6 +11,7 @@ import (
 	"os"
 	"text/template"
 
+	"github.com/firefart/mailsender/internal/config"
 	"github.com/firefart/mailsender/internal/mail"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -36,20 +37,9 @@ func (o importOptions) validate() error {
 }
 
 type sendOptions struct {
-	dbname           string
-	templatePathHTML string
-	templatePathTXT  string
-	fromFriendlyName string
-	fromEmail        string
-	subject          string
-	numberOfEmails   int
-	mail             struct {
-		host     string
-		port     int
-		username string
-		password string
-		skipTLS  bool
-	}
+	dbname         string
+	numberOfEmails int
+	config         config.Configuration
 }
 
 func (o sendOptions) validate() error {
@@ -57,31 +47,31 @@ func (o sendOptions) validate() error {
 		return fmt.Errorf("please set a database name")
 	}
 
-	if o.templatePathHTML == "" {
+	if o.config.Templates.HTML == "" {
 		return fmt.Errorf("please set a html template path")
 	}
 
-	if o.templatePathTXT == "" {
+	if o.config.Templates.TXT == "" {
 		return fmt.Errorf("please set a txt template path")
 	}
 
-	if o.fromFriendlyName == "" {
+	if o.config.Mail.From.Name == "" {
 		return fmt.Errorf("please set a friendly from name")
 	}
 
-	if o.fromEmail == "" {
+	if o.config.Mail.From.Mail == "" {
 		return fmt.Errorf("please set a from email")
 	}
 
-	if o.subject == "" {
+	if o.config.Subject == "" {
 		return fmt.Errorf("please set a subject")
 	}
 
-	if o.mail.host == "" {
+	if o.config.Mail.Server == "" {
 		return fmt.Errorf("please set a mail host")
 	}
 
-	if o.mail.port == 0 {
+	if o.config.Mail.Port == 0 {
 		return fmt.Errorf("please set a mail port")
 	}
 	return nil
@@ -138,17 +128,8 @@ func main() {
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "debug", Aliases: []string{"d"}, Value: false, Usage: "enable debug output"},
 					&cli.StringFlag{Name: "dbname", Usage: "local database name", Value: "emails.db"},
-					&cli.StringFlag{Name: "html-template", Usage: "HTML template to use for email", Required: true},
-					&cli.StringFlag{Name: "text-template", Usage: "TXT template to use for email", Required: true},
-					&cli.StringFlag{Name: "subject", Usage: "subject to use for the email", Required: true},
-					&cli.StringFlag{Name: "friendlyfrom", Usage: "friendly name to set in from", Required: true},
-					&cli.StringFlag{Name: "from", Usage: "the from email address", Required: true},
+					&cli.StringFlag{Name: "config", Aliases: []string{"c"}, Usage: "Config file to use", Required: true},
 					&cli.IntFlag{Name: "count", Usage: "number of emails to send in this run", Value: 1000},
-					&cli.StringFlag{Name: "mailserver", Usage: "mail server to use", Required: true},
-					&cli.IntFlag{Name: "mailport", Usage: "mailserver port to use", Value: 25},
-					&cli.StringFlag{Name: "username", Usage: "username to authenticate against the mailserver if needed. Can be left blank"},
-					&cli.StringFlag{Name: "password", Usage: "password to authenticate against the mailserver if needed. Can be left blank"},
-					&cli.BoolFlag{Name: "skiptls", Usage: "skip tls validation when connecting to the mailserver", Value: false},
 				},
 				Before: func(ctx *cli.Context) error {
 					if ctx.Bool("debug") {
@@ -157,20 +138,16 @@ func main() {
 					return nil
 				},
 				Action: func(cCtx *cli.Context) error {
-					opts := sendOptions{
-						dbname:           cCtx.String("dbname"),
-						templatePathHTML: cCtx.String("html-template"),
-						templatePathTXT:  cCtx.String("text-template"),
-						fromFriendlyName: cCtx.String("friendlyfrom"),
-						fromEmail:        cCtx.String("from"),
-						subject:          cCtx.String("subject"),
-						numberOfEmails:   cCtx.Int("count"),
+					configuration, err := config.GetConfig(cCtx.String("config"))
+					if err != nil {
+						return err
 					}
-					opts.mail.host = cCtx.String("mailserver")
-					opts.mail.port = cCtx.Int("mailport")
-					opts.mail.username = cCtx.String("username")
-					opts.mail.password = cCtx.String("password")
-					opts.mail.skipTLS = cCtx.Bool("skiptls")
+
+					opts := sendOptions{
+						dbname:         cCtx.String("dbname"),
+						numberOfEmails: cCtx.Int("count"),
+						config:         configuration,
+					}
 
 					if err := opts.validate(); err != nil {
 						return err
@@ -274,15 +251,17 @@ func importEmails(ctx context.Context, log *logrus.Logger, opts importOptions) e
 }
 
 func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error {
-	mail := mail.New(opts.mail.host, opts.mail.port, opts.mail.username, opts.mail.password, opts.mail.skipTLS)
+	mail := mail.New(opts.config.Mail.Server, opts.config.Mail.Port,
+		opts.config.Mail.User, opts.config.Mail.Password,
+		opts.config.Mail.SkipTLS, opts.config.Timeout.Duration)
 
-	templateHTML, err := template.ParseFiles(opts.templatePathHTML)
+	templateHTML, err := template.ParseFiles(opts.config.Templates.HTML)
 	if err != nil {
-		return fmt.Errorf("could not parse html template %s: %w", opts.templatePathHTML, err)
+		return fmt.Errorf("could not parse html template %s: %w", opts.config.Templates.HTML, err)
 	}
-	templateTXT, err := template.ParseFiles(opts.templatePathTXT)
+	templateTXT, err := template.ParseFiles(opts.config.Templates.TXT)
 	if err != nil {
-		return fmt.Errorf("could not parse txt template %s: %w", opts.templatePathTXT, err)
+		return fmt.Errorf("could not parse txt template %s: %w", opts.config.Templates.TXT, err)
 	}
 
 	db, err := sql.Open("sqlite3", opts.dbname)
@@ -332,7 +311,7 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 			return fmt.Errorf("could not execute TXT template: %w", err)
 		}
 
-		if err := mail.Send(opts.fromFriendlyName, opts.fromEmail, candidate.email, opts.subject, tplHTML.String(), tplTXT.String()); err != nil {
+		if err := mail.Send(opts.config.Mail.From.Name, opts.config.Mail.From.Mail, candidate.email, opts.config.Subject, tplHTML.String(), tplTXT.String()); err != nil {
 			return fmt.Errorf("could not send email to %s: %w", candidate.email, err)
 		}
 

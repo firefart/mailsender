@@ -2,6 +2,7 @@ package mail
 
 import (
 	"crypto/tls"
+	"time"
 
 	gomail "gopkg.in/mail.v2"
 )
@@ -10,11 +11,12 @@ type Mail struct {
 	dialer *gomail.Dialer
 }
 
-func New(host string, port int, username, password string, skipTLS bool) *Mail {
+func New(host string, port int, username, password string, skipTLS bool, timeout time.Duration) *Mail {
 	d := gomail.NewDialer(host, port, username, password)
 	if skipTLS {
 		d.TLSConfig = &tls.Config{InsecureSkipVerify: true}
 	}
+	d.Timeout = timeout
 	return &Mail{
 		dialer: d,
 	}

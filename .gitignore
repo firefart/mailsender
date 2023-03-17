@@ -3,3 +3,4 @@ mailsender
 *.csv
 *.tmpl
 *.sh
+*.json
