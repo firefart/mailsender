@@ -39,6 +39,7 @@ func (o importOptions) validate() error {
 type sendOptions struct {
 	dbname         string
 	numberOfEmails int
+	stopOnError    bool
 	config         config.Configuration
 }
 
@@ -130,6 +131,7 @@ func main() {
 					&cli.StringFlag{Name: "dbname", Usage: "local database name", Value: "emails.db"},
 					&cli.StringFlag{Name: "config", Aliases: []string{"c"}, Usage: "Config file to use", Required: true},
 					&cli.IntFlag{Name: "count", Usage: "number of emails to send in this run", Value: 1000},
+					&cli.BoolFlag{Name: "stop-on-error", Usage: "Flag to stop on error instead of sending the next email", Value: false},
 				},
 				Before: func(ctx *cli.Context) error {
 					if ctx.Bool("debug") {
@@ -146,6 +148,7 @@ func main() {
 					opts := sendOptions{
 						dbname:         cCtx.String("dbname"),
 						numberOfEmails: cCtx.Int("count"),
+						stopOnError:    cCtx.Bool("stop-on-error"),
 						config:         configuration,
 					}
 
@@ -313,13 +316,18 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 		}
 
 		if err := mail.Send(opts.config.Mail.From.Name, opts.config.Mail.From.Mail, candidate.email, opts.config.Subject, tplHTML.String(), tplTXT.String()); err != nil {
-			return fmt.Errorf("could not send email to %s: %w", candidate.email, err)
+			if opts.stopOnError {
+				return fmt.Errorf("could not send email to %s: %w", candidate.email, err)
+			}
+			// continue with next email
+			log.Errorf("could not send email to %s: %v. Continuing sending emails", candidate.email, err)
+			continue
 		}
 
-		log.Debugf("send email to %s", candidate.email)
+		log.Debugf("sent email to %s", candidate.email)
 
 		if _, err := db.ExecContext(ctx, "update emails set sent = datetime('now') where id = ?", candidate.id); err != nil {
-			return fmt.Errorf("could not set sent date in database for email %s: %w", candidate.email, err)
+			return fmt.Errorf("could not set sent date in database for email %s (email already sent): %w", candidate.email, err)
 		}
 	}
 
