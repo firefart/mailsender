@@ -323,7 +323,12 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 		}
 	}
 
-	log.Infof("Sent %d emails. There might be still emails in the database to send emails to", len(candidates))
+	var remainder int
+	if err := db.QueryRowContext(ctx, "select count(*) from emails where sent is null").Scan(&remainder); err != nil {
+		return fmt.Errorf("could not get remainder: %w", err)
+	}
+
+	log.Infof("Sent %d emails. %d emails left with no mail sent yet", len(candidates), remainder)
 
 	return nil
 }
