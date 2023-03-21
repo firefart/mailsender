@@ -6,7 +6,8 @@
       "name": "mailsender",
       "mail": "a@a.com"
     },
-    "skiptls": true,
+    "tls": true,
+    "skipCertificateCheck": true,
     "user": "",
     "password": ""
   },

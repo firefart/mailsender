@@ -46,9 +46,10 @@ type Configuration struct {
 			Name string `json:"name"`
 			Mail string `json:"mail"`
 		} `json:"from"`
-		User     string `json:"user"`
-		Password string `json:"password"`
-		SkipTLS  bool   `json:"skiptls"`
+		User                 string `json:"user"`
+		Password             string `json:"password"`
+		TLS                  bool   `json:"tls"`
+		SkipCertificateCheck bool   `json:"skipCertificateCheck"`
 	} `json:"mail"`
 	Templates struct {
 		HTML string `json:"html"`

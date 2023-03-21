@@ -11,11 +11,12 @@ type Mail struct {
 	dialer *gomail.Dialer
 }
 
-func New(host string, port int, username, password string, skipTLS bool, timeout time.Duration) *Mail {
+func New(host string, port int, username, password string, useTLS bool, skipCertificateCheck bool, timeout time.Duration) *Mail {
 	d := gomail.NewDialer(host, port, username, password)
-	if skipTLS {
+	if skipCertificateCheck {
 		d.TLSConfig = &tls.Config{InsecureSkipVerify: true}
 	}
+	d.SSL = useTLS
 	d.Timeout = timeout
 	return &Mail{
 		dialer: d,

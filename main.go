@@ -253,7 +253,8 @@ func importEmails(ctx context.Context, log *logrus.Logger, opts importOptions) e
 func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error {
 	mail := mail.New(opts.config.Mail.Server, opts.config.Mail.Port,
 		opts.config.Mail.User, opts.config.Mail.Password,
-		opts.config.Mail.SkipTLS, opts.config.Timeout.Duration)
+		opts.config.Mail.TLS, opts.config.Mail.SkipCertificateCheck,
+		opts.config.Timeout.Duration)
 
 	templateHTML, err := template.ParseFiles(opts.config.Templates.HTML)
 	if err != nil {
