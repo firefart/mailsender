@@ -9,9 +9,10 @@ import (
 
 type Mail struct {
 	dialer *gomail.Dialer
+	dryRun bool
 }
 
-func New(host string, port int, username, password string, useTLS bool, skipCertificateCheck bool, timeout time.Duration) *Mail {
+func New(host string, port int, username, password string, useTLS bool, skipCertificateCheck bool, timeout time.Duration, dryRun bool) *Mail {
 	d := gomail.NewDialer(host, port, username, password)
 	if skipCertificateCheck {
 		d.TLSConfig = &tls.Config{InsecureSkipVerify: true}
@@ -20,10 +21,16 @@ func New(host string, port int, username, password string, useTLS bool, skipCert
 	d.Timeout = timeout
 	return &Mail{
 		dialer: d,
+		dryRun: dryRun,
 	}
 }
 
 func (m *Mail) Send(fromFriendly, fromEmail, to, subject, bodyHTML, bodyTXT string) error {
+	if m.dryRun {
+		// do nothing in dry-run mode
+		return nil
+	}
+
 	msg := gomail.NewMessage()
 	msg.SetAddressHeader("From", fromEmail, fromFriendly)
 	msg.SetHeader("To", to)

@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"text/template"
+	"time"
 
 	"github.com/firefart/mailsender/internal/config"
 	"github.com/firefart/mailsender/internal/mail"
@@ -39,9 +41,11 @@ func (o importOptions) validate() error {
 type sendOptions struct {
 	dbname         string
 	numberOfEmails int
+	delay          time.Duration
 	stopOnError    bool
 	config         config.SystemConfiguration
 	configEmail    config.MailConfiguration
+	dryRun         bool
 }
 
 func (o sendOptions) validate() error {
@@ -129,10 +133,12 @@ func main() {
 				Usage: "send emails",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "debug", Aliases: []string{"d"}, Value: false, Usage: "enable debug output"},
+					&cli.BoolFlag{Name: "dry-run", Value: false, Usage: "dry-run disables email sending for debugging"},
 					&cli.StringFlag{Name: "dbname", Usage: "local database name", Value: "emails.db"},
 					&cli.StringFlag{Name: "systemconfig", Aliases: []string{"c"}, Usage: "System config file to use", Required: true},
 					&cli.StringFlag{Name: "mailconfig", Aliases: []string{"mc"}, Usage: "Mail config file to use", Required: true},
 					&cli.IntFlag{Name: "count", Usage: "number of emails to send in this run", Value: 1000},
+					&cli.DurationFlag{Name: "delay", Usage: "time to sleep between email batches", Value: 1 * time.Minute},
 					&cli.BoolFlag{Name: "stop-on-error", Usage: "Flag to stop on error instead of sending the next email", Value: false},
 				},
 				Before: func(ctx *cli.Context) error {
@@ -154,7 +160,9 @@ func main() {
 					opts := sendOptions{
 						dbname:         cCtx.String("dbname"),
 						numberOfEmails: cCtx.Int("count"),
+						delay:          cCtx.Duration("delay"),
 						stopOnError:    cCtx.Bool("stop-on-error"),
+						dryRun:         cCtx.Bool("dry-run"),
 						config:         systemConfiguration,
 						configEmail:    mailConfiguration,
 					}
@@ -162,7 +170,23 @@ func main() {
 					if err := opts.validate(); err != nil {
 						return err
 					}
-					return sendEmails(cCtx.Context, log, opts)
+
+					ctx, cancel := context.WithCancel(cCtx.Context)
+					c := make(chan os.Signal, 1)
+					signal.Notify(c, os.Interrupt)
+					defer func() {
+						signal.Stop(c)
+						cancel()
+					}()
+					go func() {
+						select {
+						case <-c:
+							cancel()
+						case <-ctx.Done():
+						}
+					}()
+
+					return sendEmails(ctx, log, opts)
 				},
 			},
 		},
@@ -264,7 +288,7 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 	mail := mail.New(opts.config.Server, opts.config.Port,
 		opts.config.User, opts.config.Password,
 		opts.config.TLS, opts.config.SkipCertificateCheck,
-		opts.config.Timeout.Duration)
+		opts.config.Timeout.Duration, opts.dryRun)
 
 	templateHTML, err := template.ParseFiles(opts.configEmail.HTMLTemplate)
 	if err != nil {
@@ -281,9 +305,38 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 	}
 	defer db.Close()
 
+	for {
+		emailsSent, err := sendEmailsWorker(ctx, log, opts, templateHTML, templateTXT, mail, db)
+		if err != nil {
+			return err
+		}
+		log.Infof("Sent %d emails", emailsSent)
+
+		var remainder int
+		if err := db.QueryRowContext(ctx, "select count(*) from emails where sent is null").Scan(&remainder); err != nil {
+			return fmt.Errorf("could not get remainder: %w", err)
+		}
+
+		if remainder == 0 {
+			log.Infof("sent all emails")
+			break
+		}
+
+		log.Infof("sleeping for %s", opts.delay)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(opts.delay):
+		}
+	}
+
+	return nil
+}
+
+func sendEmailsWorker(ctx context.Context, log *logrus.Logger, opts sendOptions, htmlTemplate, txtTemplate *template.Template, mail *mail.Mail, db *sql.DB) (int, error) {
 	rows, err := db.QueryContext(ctx, "select id, name, givenname, email from emails where sent is null LIMIT ?", opts.numberOfEmails)
 	if err != nil {
-		return fmt.Errorf("could not execute query: %w", err)
+		return -1, fmt.Errorf("could not execute query: %w", err)
 	}
 	defer rows.Close()
 
@@ -293,7 +346,7 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 		var id int
 		var name, givenname, email string
 		if err := rows.Scan(&id, &name, &givenname, &email); err != nil {
-			return fmt.Errorf("error on scanning rows: %w", err)
+			return -1, fmt.Errorf("error on scanning rows: %w", err)
 		}
 
 		candidates = append(candidates, candidate{
@@ -304,7 +357,7 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 		})
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("sql error: %w", err)
+		return -1, fmt.Errorf("sql error: %w", err)
 	}
 	rows.Close()
 
@@ -315,16 +368,16 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 			Email:     candidate.email,
 		}
 		var tplHTML, tplTXT bytes.Buffer
-		if err := templateHTML.Execute(&tplHTML, data); err != nil {
-			return fmt.Errorf("could not execute html template: %w", err)
+		if err := htmlTemplate.Execute(&tplHTML, data); err != nil {
+			return -1, fmt.Errorf("could not execute html template: %w", err)
 		}
-		if err := templateTXT.Execute(&tplTXT, data); err != nil {
-			return fmt.Errorf("could not execute TXT template: %w", err)
+		if err := txtTemplate.Execute(&tplTXT, data); err != nil {
+			return -1, fmt.Errorf("could not execute TXT template: %w", err)
 		}
 
 		if err := mail.Send(opts.config.From.Name, opts.config.From.Mail, candidate.email, opts.configEmail.Subject, tplHTML.String(), tplTXT.String()); err != nil {
 			if opts.stopOnError {
-				return fmt.Errorf("could not send email to %s: %w", candidate.email, err)
+				return -1, fmt.Errorf("could not send email to %s: %w", candidate.email, err)
 			}
 			// continue with next email
 			log.Errorf("could not send email to %s: %v. Continuing sending emails", candidate.email, err)
@@ -334,16 +387,8 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 		log.Debugf("sent email to %s", candidate.email)
 
 		if _, err := db.ExecContext(ctx, "update emails set sent = datetime('now') where id = ?", candidate.id); err != nil {
-			return fmt.Errorf("could not set sent date in database for email %s (email already sent): %w", candidate.email, err)
+			return -1, fmt.Errorf("could not set sent date in database for email %s (email already sent): %w", candidate.email, err)
 		}
 	}
-
-	var remainder int
-	if err := db.QueryRowContext(ctx, "select count(*) from emails where sent is null").Scan(&remainder); err != nil {
-		return fmt.Errorf("could not get remainder: %w", err)
-	}
-
-	log.Infof("Sent %d emails. %d emails left with no mail sent yet", len(candidates), remainder)
-
-	return nil
+	return len(candidates), nil
 }
