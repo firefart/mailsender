@@ -1,20 +1,13 @@
 {
-  "mail": {
-    "server": "localhost",
-    "port": 25,
-    "from": {
-      "name": "mailsender",
-      "mail": "a@a.com"
-    },
-    "tls": true,
-    "skipCertificateCheck": true,
-    "user": "",
-    "password": ""
+  "server": "localhost",
+  "port": 25,
+  "from": {
+    "name": "mailsender",
+    "mail": "a@a.com"
   },
-  "templates": {
-    "html": "/path/to/html.tmpl",
-    "txt": "/path/to/txt.tmpl"
-  },
-  "subject": "test",
+  "tls": true,
+  "skipCertificateCheck": true,
+  "user": "",
+  "password": "",
   "timeout": "10s"
 }

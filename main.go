@@ -40,7 +40,8 @@ type sendOptions struct {
 	dbname         string
 	numberOfEmails int
 	stopOnError    bool
-	config         config.Configuration
+	config         config.SystemConfiguration
+	configEmail    config.MailConfiguration
 }
 
 func (o sendOptions) validate() error {
@@ -48,31 +49,31 @@ func (o sendOptions) validate() error {
 		return fmt.Errorf("please set a database name")
 	}
 
-	if o.config.Templates.HTML == "" {
+	if o.configEmail.HTMLTemplate == "" {
 		return fmt.Errorf("please set a html template path")
 	}
 
-	if o.config.Templates.TXT == "" {
+	if o.configEmail.TXTTemplate == "" {
 		return fmt.Errorf("please set a txt template path")
 	}
 
-	if o.config.Mail.From.Name == "" {
-		return fmt.Errorf("please set a friendly from name")
-	}
-
-	if o.config.Mail.From.Mail == "" {
-		return fmt.Errorf("please set a from email")
-	}
-
-	if o.config.Subject == "" {
+	if o.configEmail.Subject == "" {
 		return fmt.Errorf("please set a subject")
 	}
 
-	if o.config.Mail.Server == "" {
+	if o.config.From.Name == "" {
+		return fmt.Errorf("please set a friendly from name")
+	}
+
+	if o.config.From.Mail == "" {
+		return fmt.Errorf("please set a from email")
+	}
+
+	if o.config.Server == "" {
 		return fmt.Errorf("please set a mail host")
 	}
 
-	if o.config.Mail.Port == 0 {
+	if o.config.Port == 0 {
 		return fmt.Errorf("please set a mail port")
 	}
 	return nil
@@ -129,7 +130,8 @@ func main() {
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "debug", Aliases: []string{"d"}, Value: false, Usage: "enable debug output"},
 					&cli.StringFlag{Name: "dbname", Usage: "local database name", Value: "emails.db"},
-					&cli.StringFlag{Name: "config", Aliases: []string{"c"}, Usage: "Config file to use", Required: true},
+					&cli.StringFlag{Name: "systemconfig", Aliases: []string{"c"}, Usage: "System config file to use", Required: true},
+					&cli.StringFlag{Name: "mailconfig", Aliases: []string{"mc"}, Usage: "Mail config file to use", Required: true},
 					&cli.IntFlag{Name: "count", Usage: "number of emails to send in this run", Value: 1000},
 					&cli.BoolFlag{Name: "stop-on-error", Usage: "Flag to stop on error instead of sending the next email", Value: false},
 				},
@@ -140,7 +142,11 @@ func main() {
 					return nil
 				},
 				Action: func(cCtx *cli.Context) error {
-					configuration, err := config.GetConfig(cCtx.String("config"))
+					systemConfiguration, err := config.GetSystemConfig(cCtx.String("systemconfig"))
+					if err != nil {
+						return err
+					}
+					mailConfiguration, err := config.GetMailConfig(cCtx.String("mailconfig"))
 					if err != nil {
 						return err
 					}
@@ -149,7 +155,8 @@ func main() {
 						dbname:         cCtx.String("dbname"),
 						numberOfEmails: cCtx.Int("count"),
 						stopOnError:    cCtx.Bool("stop-on-error"),
-						config:         configuration,
+						config:         systemConfiguration,
+						configEmail:    mailConfiguration,
 					}
 
 					if err := opts.validate(); err != nil {
@@ -254,18 +261,18 @@ func importEmails(ctx context.Context, log *logrus.Logger, opts importOptions) e
 }
 
 func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error {
-	mail := mail.New(opts.config.Mail.Server, opts.config.Mail.Port,
-		opts.config.Mail.User, opts.config.Mail.Password,
-		opts.config.Mail.TLS, opts.config.Mail.SkipCertificateCheck,
+	mail := mail.New(opts.config.Server, opts.config.Port,
+		opts.config.User, opts.config.Password,
+		opts.config.TLS, opts.config.SkipCertificateCheck,
 		opts.config.Timeout.Duration)
 
-	templateHTML, err := template.ParseFiles(opts.config.Templates.HTML)
+	templateHTML, err := template.ParseFiles(opts.configEmail.HTMLTemplate)
 	if err != nil {
-		return fmt.Errorf("could not parse html template %s: %w", opts.config.Templates.HTML, err)
+		return fmt.Errorf("could not parse html template %s: %w", opts.configEmail.HTMLTemplate, err)
 	}
-	templateTXT, err := template.ParseFiles(opts.config.Templates.TXT)
+	templateTXT, err := template.ParseFiles(opts.configEmail.TXTTemplate)
 	if err != nil {
-		return fmt.Errorf("could not parse txt template %s: %w", opts.config.Templates.TXT, err)
+		return fmt.Errorf("could not parse txt template %s: %w", opts.configEmail.TXTTemplate, err)
 	}
 
 	db, err := sql.Open("sqlite3", opts.dbname)
@@ -315,7 +322,7 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 			return fmt.Errorf("could not execute TXT template: %w", err)
 		}
 
-		if err := mail.Send(opts.config.Mail.From.Name, opts.config.Mail.From.Mail, candidate.email, opts.config.Subject, tplHTML.String(), tplTXT.String()); err != nil {
+		if err := mail.Send(opts.config.From.Name, opts.config.From.Mail, candidate.email, opts.configEmail.Subject, tplHTML.String(), tplTXT.String()); err != nil {
 			if opts.stopOnError {
 				return fmt.Errorf("could not send email to %s: %w", candidate.email, err)
 			}

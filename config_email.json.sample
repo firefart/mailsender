@@ -1,0 +1,5 @@
+{
+  "subject": "test",
+  "html_template": "/path/to/html.tmpl",
+  "text_template": "/path/to/txt.tmpl"
+}
