@@ -98,6 +98,10 @@ type templateData struct {
 
 func main() {
 	log := logrus.New()
+	log.SetFormatter(&logrus.TextFormatter{
+		DisableColors: false,
+		FullTimestamp: true,
+	})
 	app := &cli.App{
 		Name:  "mailsender",
 		Usage: "sends a bunch of emails and tracks the status",
@@ -305,12 +309,15 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 	}
 	defer db.Close()
 
+	totalSent := 0
 	for {
+		log.Infof("starting next email batch")
 		emailsSent, err := sendEmailsWorker(ctx, log, opts, templateHTML, templateTXT, mail, db)
 		if err != nil {
 			return err
 		}
-		log.Infof("Sent %d emails", emailsSent)
+		totalSent += emailsSent
+		log.Infof("Sent %d emails (%d total emails sent)", emailsSent, totalSent)
 
 		var remainder int
 		if err := db.QueryRowContext(ctx, "select count(*) from emails where sent is null").Scan(&remainder); err != nil {
@@ -318,7 +325,7 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 		}
 
 		if remainder == 0 {
-			log.Infof("sent all emails")
+			log.Infof("sent all %d emails", totalSent)
 			break
 		}
 
