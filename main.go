@@ -322,7 +322,7 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 			break
 		}
 
-		log.Infof("sleeping for %s", opts.delay)
+		log.Infof("sleeping for %s. %d mails to go", opts.delay, remainder)
 		select {
 		case <-ctx.Done():
 			return nil
