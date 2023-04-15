@@ -251,7 +251,7 @@ func getUnsentEmailCount(db *bolt.DB) (int, error) {
 	count := 0
 	if err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
-		b.ForEach(func(k, v []byte) error {
+		if err := b.ForEach(func(k, v []byte) error {
 			var candidate dbValue
 			if err := json.Unmarshal(v, &candidate); err != nil {
 				return err
@@ -260,7 +260,9 @@ func getUnsentEmailCount(db *bolt.DB) (int, error) {
 				count += 1
 			}
 			return nil
-		})
+		}); err != nil {
+			return nil
+		}
 		return nil
 	}); err != nil {
 		return -1, err
@@ -276,7 +278,7 @@ func dumpDatabase(ctx context.Context, log *logrus.Logger, opts dumpOptions) err
 	defer db.Close()
 	if err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
-		b.ForEach(func(k, v []byte) error {
+		if err := b.ForEach(func(k, v []byte) error {
 			var candidate dbValue
 			if err := json.Unmarshal(v, &candidate); err != nil {
 				return err
@@ -289,7 +291,9 @@ func dumpDatabase(ctx context.Context, log *logrus.Logger, opts dumpOptions) err
 				fmt.Printf("Sent: %s\n", candidate.Sent)
 			}
 			return nil
-		})
+		}); err != nil {
+			return err
+		}
 		return nil
 	}); err != nil {
 		return err
