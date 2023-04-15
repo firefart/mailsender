@@ -3,7 +3,7 @@ module github.com/firefart/mailsender
 go 1.20
 
 require (
-	github.com/mattn/go-sqlite3 v1.14.16
+	github.com/boltdb/bolt v1.3.1
 	github.com/sirupsen/logrus v1.9.0
 	github.com/urfave/cli/v2 v2.25.1
 	gopkg.in/mail.v2 v2.3.1

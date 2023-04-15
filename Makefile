@@ -2,14 +2,14 @@
 
 .PHONY: update
 update:
-	CGO_ENABLED=1 go get -u
+	go get -u
 	go mod tidy
 
 .PHONY: build
 build: test
 	go fmt ./...
 	go vet ./...
-	CGO_ENABLED=1 go build -o mailsender -ldflags='-s -w -extldflags "-static"'
+	go build -o mailsender -ldflags='-s -w -extldflags "-static"'
 
 .PHONY: lint
 lint:
