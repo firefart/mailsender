@@ -3,9 +3,10 @@ module github.com/firefart/mailsender
 go 1.20
 
 require (
-	github.com/boltdb/bolt v1.3.1
+	github.com/asdine/storm/v3 v3.2.1
 	github.com/sirupsen/logrus v1.9.0
 	github.com/urfave/cli/v2 v2.25.1
+	go.etcd.io/bbolt v1.3.7
 	gopkg.in/mail.v2 v2.3.1
 )
 

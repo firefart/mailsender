@@ -3,9 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/csv"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,13 +14,13 @@ import (
 
 	"github.com/firefart/mailsender/internal/config"
 	"github.com/firefart/mailsender/internal/mail"
+	"go.etcd.io/bbolt"
 
-	"github.com/boltdb/bolt"
+	"github.com/asdine/storm/v3"
+	"github.com/asdine/storm/v3/q"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 )
-
-const bucketName = "emails"
 
 type importOptions struct {
 	dbname      string
@@ -42,10 +40,12 @@ func (o dumpOptions) validate() error {
 }
 
 type dbValue struct {
-	Email     string     `json:"email"`
-	Name      string     `json:"name"`
-	GivenName string     `json:"given_name"`
-	Sent      *time.Time `json:"time,omitempty"`
+	ID        int `storm:"id,increment"`
+	Email     string
+	Name      string
+	GivenName string
+	Sent      bool
+	SentTime  time.Time
 }
 
 func (o importOptions) validate() error {
@@ -240,73 +240,39 @@ func main() {
 	}
 }
 
-// itob returns an 8-byte big endian representation of v.
-func itob(v int) []byte {
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, uint64(v))
-	return b
-}
-
-func getUnsentEmailCount(db *bolt.DB) (int, error) {
+func getUnsentEmailCount(db *storm.DB) (int, error) {
 	count := 0
-	if err := db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(bucketName))
-		if err := b.ForEach(func(k, v []byte) error {
-			var candidate dbValue
-			if err := json.Unmarshal(v, &candidate); err != nil {
-				return err
-			}
-			if candidate.Sent == nil {
-				count += 1
-			}
-			return nil
-		}); err != nil {
-			return nil
-		}
-		return nil
-	}); err != nil {
-		return -1, err
+	count, err := db.Select(q.Eq("Sent", false)).Count(new(dbValue))
+	if err != nil {
+		return -1, fmt.Errorf("getUnsentEmailCount: %w", err)
 	}
 	return count, nil
 }
 
 func dumpDatabase(ctx context.Context, log *logrus.Logger, opts dumpOptions) error {
-	db, err := bolt.Open(opts.dbname, 0600, &bolt.Options{Timeout: 1 * time.Second})
+	db, err := storm.Open(opts.dbname, storm.BoltOptions(0600, &bbolt.Options{Timeout: 1 * time.Second}))
 	if err != nil {
 		return fmt.Errorf("could not open database: %w", err)
 	}
 	defer db.Close()
-	if err := db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(bucketName))
-		if err := b.ForEach(func(k, v []byte) error {
-			var candidate dbValue
-			if err := json.Unmarshal(v, &candidate); err != nil {
-				return err
-			}
-			fmt.Printf("#####################\n")
-			fmt.Printf("Email: %s\n", candidate.Email)
-			fmt.Printf("Name: %s\n", candidate.Name)
-			fmt.Printf("Given Name: %s\n", candidate.GivenName)
-			if candidate.Sent != nil {
-				fmt.Printf("Sent: %s\n", candidate.Sent)
-			}
-			return nil
-		}); err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
+	var candidates []dbValue
+	if err := db.All(&candidates); err != nil {
 		return err
+	}
+	for _, candidate := range candidates {
+		fmt.Printf("#####################\n")
+		fmt.Printf("Email: %s\n", candidate.Email)
+		fmt.Printf("Name: %s\n", candidate.Name)
+		fmt.Printf("Given Name: %s\n", candidate.GivenName)
+		fmt.Printf("Sent: %t\n", candidate.Sent)
+		if candidate.Sent {
+			fmt.Printf("Sent: %s\n", candidate.SentTime)
+		}
 	}
 	return nil
 }
 
 func importEmails(ctx context.Context, log *logrus.Logger, opts importOptions) error {
-	if _, err := os.Stat(opts.dbname); err == nil {
-		fmt.Println("Database already exists and will be removed by import. Press enter to continue, CTRL+C to cancel")
-		fmt.Scanln()
-	}
-
 	if err := os.Remove(opts.dbname); err != nil {
 		// ignore if no previous database
 		if !errors.Is(err, os.ErrNotExist) {
@@ -314,72 +280,52 @@ func importEmails(ctx context.Context, log *logrus.Logger, opts importOptions) e
 		}
 	}
 
-	db, err := bolt.Open(opts.dbname, 0600, &bolt.Options{Timeout: 1 * time.Second})
+	db, err := storm.Open(opts.dbname, storm.BoltOptions(0600, &bbolt.Options{Timeout: 1 * time.Second}), storm.Batch())
 	if err != nil {
 		return fmt.Errorf("could not open database: %w", err)
 	}
 	defer db.Close()
 
-	if err := db.Batch(func(tx *bolt.Tx) error {
-		csvFile, err := os.Open(opts.csvFilePath)
-		if err != nil {
-			return fmt.Errorf("error opening csv file: %w", err)
-		}
-		defer csvFile.Close()
-
-		b, err := tx.CreateBucket([]byte(bucketName))
-		if err != nil {
-			return fmt.Errorf("create bucket: %s", err)
-		}
-
-		csvReader := csv.NewReader(csvFile)
-		csvReader.FieldsPerRecord = 3
-		csvReader.TrimLeadingSpace = true
-		count := -1
-		for {
-			records, err := csvReader.Read()
-			if err != nil {
-				if errors.Is(err, io.EOF) {
-					break
-				}
-				return fmt.Errorf("error reading csv: %w", err)
-			}
-
-			count += 1
-			// no need to process header line
-			if count == 0 {
-				continue
-			}
-
-			id, err := b.NextSequence()
-			if err != nil {
-				return err
-			}
-
-			email := records[2]
-			name := records[0]
-			givenName := records[1]
-
-			value := dbValue{
-				Email:     email,
-				Name:      name,
-				GivenName: givenName,
-			}
-			buf, err := json.Marshal(value)
-			if err != nil {
-				return err
-			}
-
-			if err := b.Put(itob(int(id)), buf); err != nil {
-				return fmt.Errorf("error on inserting %s into datbase: %w", "", err)
-			}
-		}
-		log.Infof("inserted %d records", count)
-		return nil
-	}); err != nil {
-		return err
+	csvFile, err := os.Open(opts.csvFilePath)
+	if err != nil {
+		return fmt.Errorf("error opening csv file: %w", err)
 	}
+	defer csvFile.Close()
 
+	csvReader := csv.NewReader(csvFile)
+	csvReader.FieldsPerRecord = 3
+	csvReader.TrimLeadingSpace = true
+	count := -1
+	for {
+		records, err := csvReader.Read()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return fmt.Errorf("error reading csv: %w", err)
+		}
+
+		count += 1
+		// no need to process header line
+		if count == 0 {
+			continue
+		}
+
+		email := records[2]
+		name := records[0]
+		givenName := records[1]
+
+		value := dbValue{
+			Email:     email,
+			Name:      name,
+			GivenName: givenName,
+			Sent:      false,
+		}
+		if err := db.Save(&value); err != nil {
+			return fmt.Errorf("error on inserting %s into database: %w", email, err)
+		}
+	}
+	log.Infof("inserted %d records", count)
 	return nil
 }
 
@@ -398,7 +344,7 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 		return fmt.Errorf("could not parse txt template %s: %w", opts.configEmail.TXTTemplate, err)
 	}
 
-	db, err := bolt.Open(opts.dbname, 0600, &bolt.Options{Timeout: 1 * time.Second})
+	db, err := storm.Open(opts.dbname, storm.BoltOptions(0600, &bbolt.Options{Timeout: 1 * time.Second}))
 	if err != nil {
 		return fmt.Errorf("could not open database %s: %w", opts.dbname, err)
 	}
@@ -435,63 +381,45 @@ func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error
 	return nil
 }
 
-func sendEmailsWorker(ctx context.Context, log *logrus.Logger, opts sendOptions, htmlTemplate, txtTemplate *template.Template, mail *mail.Mail, db *bolt.DB) (int, error) {
+func sendEmailsWorker(ctx context.Context, log *logrus.Logger, opts sendOptions, htmlTemplate, txtTemplate *template.Template, mail *mail.Mail, db *storm.DB) (int, error) {
 	count := 0
-	if err := db.Batch(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(bucketName))
-		c := b.Cursor()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if count >= opts.numberOfEmails {
-				return nil
-			}
 
-			var candidate dbValue
-			if err := json.Unmarshal(v, &candidate); err != nil {
-				return err
-			}
-			if candidate.Sent != nil {
-				continue
-			}
-
-			data := templateData{
-				Name:      candidate.Name,
-				GivenName: candidate.GivenName,
-				Email:     candidate.Email,
-			}
-			var tplHTML, tplTXT bytes.Buffer
-			if err := htmlTemplate.Execute(&tplHTML, data); err != nil {
-				return fmt.Errorf("could not execute html template: %w", err)
-			}
-			if err := txtTemplate.Execute(&tplTXT, data); err != nil {
-				return fmt.Errorf("could not execute TXT template: %w", err)
-			}
-
-			if err := mail.Send(opts.config.From.Name, opts.config.From.Mail, candidate.Email, opts.configEmail.Subject, tplHTML.String(), tplTXT.String()); err != nil {
-				if opts.stopOnError {
-					return fmt.Errorf("could not send email to %s: %w", candidate.Email, err)
-				}
-				// continue with next email
-				log.Errorf("could not send email to %s: %v. Continuing sending emails", candidate.Email, err)
-				count += 1
-				continue
-			}
-
-			log.Debugf("sent email to %s", candidate.Email)
-
-			now := time.Now()
-			candidate.Sent = &now
-			buf, err := json.Marshal(candidate)
-			if err != nil {
-				return err
-			}
-			if err := b.Put(k, buf); err != nil {
-				return err
-			}
-			count += 1
+	var candidates []dbValue
+	if err := db.Find("Sent", false, &candidates, storm.Limit(opts.numberOfEmails)); err != nil {
+		return -1, fmt.Errorf("sendEmailsWorker: db.Find error: %w", err)
+	}
+	for _, candidate := range candidates {
+		data := templateData{
+			Name:      candidate.Name,
+			GivenName: candidate.GivenName,
+			Email:     candidate.Email,
 		}
-		return nil
-	}); err != nil {
-		return -1, err
+		var tplHTML, tplTXT bytes.Buffer
+		if err := htmlTemplate.Execute(&tplHTML, data); err != nil {
+			return -1, fmt.Errorf("could not execute html template: %w", err)
+		}
+		if err := txtTemplate.Execute(&tplTXT, data); err != nil {
+			return -1, fmt.Errorf("could not execute TXT template: %w", err)
+		}
+
+		if err := mail.Send(opts.config.From.Name, opts.config.From.Mail, candidate.Email, opts.configEmail.Subject, tplHTML.String(), tplTXT.String()); err != nil {
+			if opts.stopOnError {
+				return -1, fmt.Errorf("could not send email to %s: %w", candidate.Email, err)
+			}
+			// continue with next email
+			log.Errorf("could not send email to %s: %v. Continuing sending emails", candidate.Email, err)
+			count += 1
+			continue
+		}
+
+		log.Debugf("sent email to %s", candidate.Email)
+
+		candidate.Sent = true
+		candidate.SentTime = time.Now()
+		if err := db.Update(&candidate); err != nil {
+			return -1, err
+		}
+		count += 1
 	}
 	return count, nil
 }
