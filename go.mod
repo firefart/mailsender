@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/asdine/storm/v3 v3.2.1
-	github.com/sirupsen/logrus v1.9.1
+	github.com/sirupsen/logrus v1.9.2
 	github.com/urfave/cli/v2 v2.25.3
 	go.etcd.io/bbolt v1.3.7
 	gopkg.in/mail.v2 v2.3.1
