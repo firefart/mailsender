@@ -4,3 +4,5 @@ mailsender
 *.tmpl
 *.sh
 *.json
+
+dist/
