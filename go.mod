@@ -7,7 +7,7 @@ toolchain go1.22.2
 require (
 	github.com/asdine/storm/v3 v3.2.1
 	github.com/sirupsen/logrus v1.9.3
-	github.com/urfave/cli/v2 v2.27.2
+	github.com/urfave/cli/v2 v2.27.3
 	go.etcd.io/bbolt v1.3.10
 	gopkg.in/mail.v2 v2.3.1
 )
