@@ -144,7 +144,7 @@ func main() {
 					if err := opts.validate(); err != nil {
 						return err
 					}
-					return importEmails(cCtx.Context, log, opts)
+					return importEmails(log, opts)
 				},
 			},
 			{
@@ -168,7 +168,7 @@ func main() {
 					if err := opts.validate(); err != nil {
 						return err
 					}
-					return dumpDatabase(cCtx.Context, log, opts)
+					return dumpDatabase(opts)
 				},
 			},
 			{
@@ -237,7 +237,7 @@ func getUnsentEmailCount(db *storm.DB) (int, error) {
 	return count, nil
 }
 
-func dumpDatabase(ctx context.Context, log *logrus.Logger, opts dumpOptions) error {
+func dumpDatabase(opts dumpOptions) error {
 	db, err := storm.Open(opts.dbname, storm.BoltOptions(0600, &bbolt.Options{Timeout: 1 * time.Second}))
 	if err != nil {
 		return fmt.Errorf("could not open database: %w", err)
@@ -260,7 +260,7 @@ func dumpDatabase(ctx context.Context, log *logrus.Logger, opts dumpOptions) err
 	return nil
 }
 
-func importEmails(ctx context.Context, log *logrus.Logger, opts importOptions) error {
+func importEmails(log *logrus.Logger, opts importOptions) error {
 	if err := os.Remove(opts.dbname); err != nil {
 		// ignore if no previous database
 		if !errors.Is(err, os.ErrNotExist) {
@@ -293,7 +293,7 @@ func importEmails(ctx context.Context, log *logrus.Logger, opts importOptions) e
 			return fmt.Errorf("error reading csv: %w", err)
 		}
 
-		count += 1
+		count++
 		// no need to process header line
 		if count == 0 {
 			continue
@@ -400,7 +400,7 @@ func sendEmailsWorker(ctx context.Context, log *logrus.Logger, opts sendOptions,
 			}
 			// continue with next email
 			log.Errorf("could not send email to %s: %v. Continuing sending emails", candidate.Email, err)
-			count += 1
+			count++
 			continue
 		}
 
@@ -411,7 +411,7 @@ func sendEmailsWorker(ctx context.Context, log *logrus.Logger, opts sendOptions,
 		if err := db.Update(&candidate); err != nil {
 			return -1, err
 		}
-		count += 1
+		count++
 	}
 	return count, nil
 }
