@@ -56,7 +56,7 @@ func (m *Mail) Send(ctx context.Context, fromFriendly, fromEmail, to, subject, b
 		return nil
 	}
 
-	msg := gomail.NewMsg()
+	msg := gomail.NewMsg(gomail.WithNoDefaultUserAgent())
 	if err := msg.FromFormat(fromFriendly, fromEmail); err != nil {
 		return err
 	}
