@@ -44,5 +44,5 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm/v7,linux/arm64/v8,linux/386,linux/ppc64le
           tags: |
-            firefart/mailsender:latest
-            ghcr.io/firefart/mailsender:latest
+            firefart/__PACKAGENAME__:latest
+            ghcr.io/firefart/__PACKAGENAME__:latest

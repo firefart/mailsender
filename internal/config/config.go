@@ -54,6 +54,7 @@ type SystemConfiguration struct {
 	User                 string   `json:"user"`
 	Password             string   `json:"password"`
 	TLS                  bool     `json:"tls"`
+	StartTLS             bool     `json:"starttls"`
 	SkipCertificateCheck bool     `json:"skipCertificateCheck"`
 	Timeout              Duration `json:"timeout"`
 }

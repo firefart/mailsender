@@ -214,20 +214,8 @@ func main() {
 						return err
 					}
 
-					ctx, cancel := context.WithCancel(cCtx.Context)
-					c := make(chan os.Signal, 1)
-					signal.Notify(c, os.Interrupt)
-					defer func() {
-						signal.Stop(c)
-						cancel()
-					}()
-					go func() {
-						select {
-						case <-c:
-							cancel()
-						case <-ctx.Done():
-						}
-					}()
+					ctx, cancel := signal.NotifyContext(cCtx.Context, os.Interrupt)
+					defer cancel()
 
 					return sendEmails(ctx, log, opts)
 				},
@@ -330,10 +318,14 @@ func importEmails(ctx context.Context, log *logrus.Logger, opts importOptions) e
 }
 
 func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error {
-	mail := mail.New(opts.config.Server, opts.config.Port,
+	mail, err := mail.New(opts.config.Server, opts.config.Port,
 		opts.config.User, opts.config.Password,
-		opts.config.TLS, opts.config.SkipCertificateCheck,
+		opts.config.TLS, opts.config.StartTLS,
+		opts.config.SkipCertificateCheck,
 		opts.config.Timeout.Duration, opts.dryRun)
+	if err != nil {
+		return err
+	}
 
 	templateHTML, err := template.ParseFiles(opts.configEmail.HTMLTemplate)
 	if err != nil {
@@ -402,7 +394,7 @@ func sendEmailsWorker(ctx context.Context, log *logrus.Logger, opts sendOptions,
 			return -1, fmt.Errorf("could not execute TXT template: %w", err)
 		}
 
-		if err := mail.Send(opts.config.From.Name, opts.config.From.Mail, candidate.Email, opts.configEmail.Subject, tplHTML.String(), tplTXT.String()); err != nil {
+		if err := mail.Send(ctx, opts.config.From.Name, opts.config.From.Mail, candidate.Email, opts.configEmail.Subject, tplHTML.String(), tplTXT.String()); err != nil {
 			if opts.stopOnError {
 				return -1, fmt.Errorf("could not send email to %s: %w", candidate.Email, err)
 			}

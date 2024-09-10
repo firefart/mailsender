@@ -8,4 +8,4 @@
 .github
 *.md
 mailsender
-Makefile
+Taskfile.yml
