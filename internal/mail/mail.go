@@ -22,7 +22,7 @@ func New(host string, port int, username, password string, useTLS, useStartTLS, 
 	if username != "" && password != "" {
 		options = append(options, gomail.WithSMTPAuth(gomail.SMTPAuthPlain))
 		options = append(options, gomail.WithUsername(username))
-		options = append(options, gomail.WithUsername(password))
+		options = append(options, gomail.WithPassword(password))
 	}
 	if skipCertificateCheck {
 		options = append(options, gomail.WithTLSConfig(&tls.Config{
