@@ -4,56 +4,69 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"time"
+
+	"github.com/firefart/mailsender/internal/config"
 
 	gomail "github.com/wneessen/go-mail"
 )
 
 type Mail struct {
-	client *gomail.Client
 	dryRun bool
+	config config.SystemConfiguration
 }
 
-func New(host string, port int, username, password string, useTLS, useStartTLS, skipCertificateCheck bool, timeout time.Duration, dryRun bool) (*Mail, error) {
+func New(c config.SystemConfiguration, dryRun bool) *Mail {
+	return &Mail{
+		dryRun: dryRun,
+		config: c,
+	}
+}
+
+// gomail.Client is NOT threadsafe
+// https://github.com/wneessen/go-mail/discussions/268
+// so we need to create a new client each time :/
+func (m *Mail) newClient() (*gomail.Client, error) {
 	var options []gomail.Option
 
-	options = append(options, gomail.WithTimeout(timeout))
-	options = append(options, gomail.WithPort(port))
-	if username != "" && password != "" {
+	options = append(options, gomail.WithTimeout(m.config.Timeout.Duration))
+	options = append(options, gomail.WithPort(m.config.Port))
+	if m.config.User != "" && m.config.Password != "" {
 		options = append(options, gomail.WithSMTPAuth(gomail.SMTPAuthPlain))
-		options = append(options, gomail.WithUsername(username))
-		options = append(options, gomail.WithPassword(password))
+		options = append(options, gomail.WithUsername(m.config.User))
+		options = append(options, gomail.WithPassword(m.config.Password))
 	}
-	if skipCertificateCheck {
+	if m.config.SkipCertificateCheck {
 		options = append(options, gomail.WithTLSConfig(&tls.Config{
 			InsecureSkipVerify: true,
 		}))
 	}
 
 	// use either tls, starttls, or starttls with fallback to plaintext
-	if useTLS {
+	if m.config.TLS {
 		options = append(options, gomail.WithSSL())
-	} else if useStartTLS {
+	} else if m.config.StartTLS {
 		options = append(options, gomail.WithTLSPortPolicy(gomail.TLSMandatory))
 	} else {
 		options = append(options, gomail.WithTLSPortPolicy(gomail.TLSOpportunistic))
 	}
 
-	mailer, err := gomail.NewClient(host, options...)
+	mailer, err := gomail.NewClient(m.config.Server, options...)
 	if err != nil {
 		return nil, fmt.Errorf("could not create mail client: %w", err)
 	}
 
-	return &Mail{
-		client: mailer,
-		dryRun: dryRun,
-	}, nil
+	return mailer, nil
 }
 
 func (m *Mail) Send(ctx context.Context, fromFriendly, fromEmail, to, subject, bodyHTML, bodyTXT string) error {
 	if m.dryRun {
 		// do nothing in dry-run mode
 		return nil
+	}
+
+	mailer, err := m.newClient()
+	if err != nil {
+		return err
 	}
 
 	msg := gomail.NewMsg(gomail.WithNoDefaultUserAgent())
@@ -67,7 +80,7 @@ func (m *Mail) Send(ctx context.Context, fromFriendly, fromEmail, to, subject, b
 	msg.SetBodyString(gomail.TypeTextPlain, bodyTXT)
 	msg.AddAlternativeString(gomail.TypeTextHTML, bodyHTML)
 
-	if err := m.client.DialAndSendWithContext(ctx, msg); err != nil {
+	if err := mailer.DialAndSendWithContext(ctx, msg); err != nil {
 		return err
 	}
 	return nil

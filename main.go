@@ -318,14 +318,7 @@ func importEmails(log *logrus.Logger, opts importOptions) error {
 }
 
 func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error {
-	mail, err := mail.New(opts.config.Server, opts.config.Port,
-		opts.config.User, opts.config.Password,
-		opts.config.TLS, opts.config.StartTLS,
-		opts.config.SkipCertificateCheck,
-		opts.config.Timeout.Duration, opts.dryRun)
-	if err != nil {
-		return err
-	}
+	mail := mail.New(opts.config, opts.dryRun)
 
 	templateHTML, err := template.ParseFiles(opts.configEmail.HTMLTemplate)
 	if err != nil {
