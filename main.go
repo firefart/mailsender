@@ -318,7 +318,10 @@ func importEmails(log *logrus.Logger, opts importOptions) error {
 }
 
 func sendEmails(ctx context.Context, log *logrus.Logger, opts sendOptions) error {
-	mail := mail.New(opts.config, opts.dryRun)
+	mail, err := mail.New(opts.config, opts.dryRun)
+	if err != nil {
+		return err
+	}
 
 	templateHTML, err := template.ParseFiles(opts.configEmail.HTMLTemplate)
 	if err != nil {
