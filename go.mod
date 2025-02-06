@@ -7,7 +7,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/urfave/cli/v2 v2.27.5
 	github.com/wneessen/go-mail v0.6.1
-	go.etcd.io/bbolt v1.3.11
+	go.etcd.io/bbolt v1.4.0
 )
 
 require (
