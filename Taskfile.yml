@@ -11,6 +11,7 @@ tasks:
   update:
     cmds:
       - go get -u
+      - go get -u tool
       - go mod tidy -v
 
   setup:
@@ -24,7 +25,7 @@ tasks:
       CGO_ENABLED: 0
     cmds:
       - go fmt ./...
-      - gofumpt -l -w .
+      - go tool gofumpt -l -w .
       - go vet ./...
       - go build -o {{.PROGRAM}}
 
