@@ -1,6 +1,6 @@
 module github.com/firefart/mailsender
 
-go 1.25
+go 1.25.0
 
 require (
 	github.com/asdine/storm/v3 v3.2.1
@@ -16,8 +16,8 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/xrash/smetrics v0.0.0-20250705151800-55b8f293f342 // indirect
 	golang.org/x/mod v0.33.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/tools v0.42.0 // indirect
 	mvdan.cc/gofumpt v0.9.2 // indirect
