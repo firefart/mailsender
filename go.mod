@@ -6,7 +6,7 @@ require (
 	github.com/asdine/storm/v3 v3.2.1
 	github.com/sirupsen/logrus v1.9.4
 	github.com/urfave/cli/v2 v2.27.7
-	github.com/wneessen/go-mail v0.8.0
+	github.com/wneessen/go-mail v0.8.1
 	go.etcd.io/bbolt v1.5.0
 )
 
