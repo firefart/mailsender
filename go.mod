@@ -1,12 +1,12 @@
 module github.com/firefart/mailsender
 
-go 1.26.0
+go 1.26.10
 
 require (
 	github.com/asdine/storm/v3 v3.2.1
 	github.com/sirupsen/logrus v1.10.2
 	github.com/urfave/cli/v2 v2.27.7
-	github.com/wneessen/go-mail v0.8.1
+	github.com/wneessen/go-mail v0.8.2
 	go.etcd.io/bbolt v1.5.0
 )
 
